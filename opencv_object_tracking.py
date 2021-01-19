@@ -74,10 +74,18 @@ while True:
 		# check to see if the tracking was a success
 		if success:
 			(x, y, w, h) = [int(v) for v in box]
+			
+			frame_ori = frame.copy()
 			cv2.rectangle(frame, (x, y), (x + w, y + h),
 				(0, 255, 0), 2)
 
-			imCrop = frame[int(box[1]):int(box[1]+box[3]), int(box[0]):int(box[0]+box[2])]
+			# Transparency factor.
+			alpha = 0
+
+			# Following line overlays transparent rectangle over the image
+			transparent_border = cv2.addWeighted(frame, alpha, frame_ori, 1 - alpha, 0)
+
+			imCrop = transparent_border[int(box[1]):int(box[1]+box[3]), int(box[0]):int(box[0]+box[2])]
 			cv2.imwrite('./output/{}.png'.format(time.time()), imCrop)
 			
 		# update the FPS counter
