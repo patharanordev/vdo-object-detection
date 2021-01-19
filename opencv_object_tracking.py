@@ -1,5 +1,3 @@
-# Ref. https://www.pyimagesearch.com/2018/07/30/opencv-object-tracking/
-
 # import the necessary packages
 from imutils.video import VideoStream
 from imutils.video import FPS
@@ -66,7 +64,7 @@ while True:
 		break
 	# resize the frame (so we can process it faster) and grab the
 	# frame dimensions
-	frame = imutils.resize(frame, width=500)
+	frame = imutils.resize(frame, width=1024)
 	(H, W) = frame.shape[:2]
 
     # check to see if we are currently tracking an object
