@@ -29,6 +29,9 @@ OPENCV_OBJECT_TRACKERS = {
 # to track
 initBB = None
 
+# Image size
+img_size = 96
+
 # initialize the FPS throughput estimator
 fps = None
 
@@ -96,6 +99,12 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
 
     # Sets image saturation to maximum 
     mask[..., 1] = 255
+
+
+    initBB = (324, 60, img_size, img_size)
+    tracker.init(first_frame, initBB)
+    fps = FPS().start()
+
 
     # loop over frames from the video stream
     while fvs.more():
@@ -195,14 +204,15 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
         # if the 's' key is selected, we are going to "select" a bounding
         # box to track
         if key == ord("s"):
-            # select the bounding box of the object we want to track (make
-            # sure you press ENTER or SPACE after selecting the ROI)
-            initBB = cv2.selectROI("Frame", frame, fromCenter=False,
-                showCrosshair=True)
-            # start OpenCV object tracker using the supplied bounding box
-            # coordinates, then start the FPS throughput estimator as well
-            tracker.init(frame, initBB)
-            fps = FPS().start()
+            # # select the bounding box of the object we want to track (make
+            # # sure you press ENTER or SPACE after selecting the ROI)
+            # initBB = cv2.selectROI("Frame", frame, fromCenter=False,
+            #     showCrosshair=True)
+
+            # # start OpenCV object tracker using the supplied bounding box
+            # # coordinates, then start the FPS throughput estimator as well
+            # tracker.init(frame, initBB)
+            # fps = FPS().start()
         # if the `q` key was pressed, break from the loop
         elif key == ord("q"):
             break
@@ -242,5 +252,6 @@ time.sleep(1.0)
 vs, tracker = load_vdo(args)
 # Prepare output folder
 create_output_dir()
+
 # Tracking loop
 tracking(fvs, tracker, width=512)
