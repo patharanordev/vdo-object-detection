@@ -30,7 +30,13 @@ OPENCV_OBJECT_TRACKERS = {
 initBB = None
 
 # Image size
-img_size = 96
+img_size = 100
+
+# Request quit
+is_quit = False
+
+# Request capture
+is_capture = True
 
 # initialize the FPS throughput estimator
 fps = None
@@ -45,36 +51,36 @@ def create_output_dir():
     if not os.path.isdir(optical_flow_dir):
         os.makedirs(os.path.join(os.getcwd(), optical_flow_dir))
 
-def load_vdo(args):
+def load_vdo(vdo_path, tracker_type='csrt'):
     # extract the OpenCV version info
     (major, minor) = cv2.__version__.split(".")[:2]
     # if we are using OpenCV 3.2 OR BEFORE, we can use a special factory
     # function to create our object tracker
     if int(major) == 3 and int(minor) < 3:
-        tracker = cv2.Tracker_create(args["tracker"].upper())
+        tracker = cv2.Tracker_create(tracker_type.upper())
     # otherwise, for OpenCV 3.3 OR NEWER, we need to explicity call the
     # approrpiate object tracker constructor:
     else:
 
         # grab the appropriate object tracker using our dictionary of
         # OpenCV object tracker objects
-        tracker = OPENCV_OBJECT_TRACKERS[args["tracker"]]()
+        tracker = OPENCV_OBJECT_TRACKERS[tracker_type]()
 
 
     # if a video path was not supplied, grab the reference to the web cam
-    if not args.get("video", False):
+    if vdo_path == None:
         print("[INFO] starting video stream...")
         vs = VideoStream(src=0).start()
         time.sleep(1.0)
     # otherwise, grab a reference to the video file
     else:
-        vs = cv2.VideoCapture(args["video"])
+        vs = cv2.VideoCapture(vdo_path)
 
     return vs, tracker
 
-def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flow_dir):
+def tracking(fvs, tracker, vdo_path, clip_date, tracker_type='csrt', width=1024, fg_dir=foreground_dir, of_dir=optical_flow_dir):
 
-    global initBB
+    global initBB, is_quit
 
     # ret = a boolean return value from 
     # getting the frame, first_frame = the 
@@ -101,7 +107,7 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
     mask[..., 1] = 255
 
 
-    initBB = (324, 60, img_size, img_size)
+    initBB = (300, 40, img_size, img_size)
     tracker.init(first_frame, initBB)
     fps = FPS().start()
 
@@ -144,6 +150,7 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
         
         # Converts HSV to RGB (BGR) color representation 
         rgb = cv2.cvtColor(mask, cv2.COLOR_HSV2BGR) 
+        rgb = cv2.bilateralFilter(rgb, 9, 75, 75)
         
         # Opens a new window and displays the output frame 
         cv2.imshow("dense optical flow", rgb) 
@@ -176,9 +183,11 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
 
                 img_fg_crop = transparent_fg_border[int(box[1]):int(box[1]+box[3]), int(box[0]):int(box[0]+box[2])]
                 img_of_crop = rgb[int(box[1]):int(box[1]+box[3]), int(box[0]):int(box[0]+box[2])]
+                
+                img_of_crop = cv2.resize(img_of_crop,(28,28))
 
-                cv2.imwrite('{}/{}.png'.format(fg_dir, current_time), img_fg_crop)
-                cv2.imwrite('{}/{}.png'.format(of_dir, current_time), img_of_crop)
+                cv2.imwrite('{}/{}{}.png'.format(fg_dir, clip_date, current_time), img_fg_crop)
+                cv2.imwrite('{}/{}{}.png'.format(of_dir, clip_date, current_time), img_of_crop)
                 
             # update the FPS counter
             fps.update()
@@ -186,7 +195,7 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
             # initialize the set of information we'll be displaying on
             # the frame
             info = [
-                ("Tracker", args["tracker"]),
+                ("Tracker", tracker_type),
                 ("Success", "Yes" if success else "No"),
                 ("FPS", "{:.2f}".format(fps.fps())),
                 ("Queue Size", "{}".format(fvs.Q.qsize()))
@@ -213,16 +222,18 @@ def tracking(fvs, tracker, width=1024, fg_dir=foreground_dir, of_dir=optical_flo
             # # coordinates, then start the FPS throughput estimator as well
             # tracker.init(frame, initBB)
             # fps = FPS().start()
+            pass
         # if the `q` key was pressed, break from the loop
         elif key == ord("q"):
+            is_quit = True
             break
         
     # if we are using a webcam, release the pointer
-    if not args.get("video", False):
-        fvs.stop()
+    if vdo_path == None:
+        fvs.release()
     # otherwise, release the file pointer
     else:
-        fvs.release()
+        fvs.stop()
     # close all windows
     cv2.destroyAllWindows()
 
@@ -233,6 +244,23 @@ if sys.version_info >= (3, 0):
 else:
 	from Queue import Queue
 
+
+def run(vdo_path, frame_width, clip_date='', tracker_type='csrt', queue_size=128, **kwargs):
+    # start the file video stream thread and allow the buffer to
+    # start to fill
+    print("[INFO] starting video file thread...")
+    fvs = FileVideoStream(vdo_path, queue_size=queue_size, **kwargs).start()
+    time.sleep(1.0)
+
+    # Load video stream
+    vs, tracker = load_vdo(vdo_path, tracker_type)
+    # Prepare output folder
+    create_output_dir()
+
+    # Tracking loop
+    tracking(fvs, tracker, vdo_path, clip_date, tracker_type=tracker_type, width=frame_width)
+
+
 # -------------------------------------------------------------------
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -242,16 +270,66 @@ ap.add_argument("-t", "--tracker", type=str, default="kcf",
     help="OpenCV object tracker type")
 args = vars(ap.parse_args())
 
-# start the file video stream thread and allow the buffer to
-# start to fill
-print("[INFO] starting video file thread...")
-fvs = FileVideoStream(args["video"], queue_size=4096).start()
-time.sleep(1.0)
 
-# Load video stream
-vs, tracker = load_vdo(args)
-# Prepare output folder
-create_output_dir()
+# Run
+run(args["video"], tracker_type=args["tracker"], frame_width=512, queue_size=4096)
 
-# Tracking loop
-tracking(fvs, tracker, width=512)
+
+# >>>>> SET VDO PATH HERE <<<<<
+# Ex. project directory
+
+# denso  <--------------------------------------- start from here
+# |- Denso-Trainingset
+# |  |- 20200415
+# |  |- CtlEquip_10
+# |  |  `- vdo here
+# |  |  `- ...
+# |  |- 20200416
+# |  |- CtlEquip_10
+# |  |  `- vdo here
+# |  |  `- ...
+# |
+# .
+# .
+# `- Denso-Trainingset8
+#    `- SOME_DATE
+#       |- CtlEquip_10
+#       `- vdo here
+#    
+path = '/Users/patharanor/SuperAI/week4/denso'
+# print('Path : ', path)
+
+
+# for ds in os.listdir(path):
+#     if is_quit: break
+
+#     dataset_path = os.path.join(path, ds)
+#     # print('- Dataset path {}'.format(dataset_path))
+#     if os.path.isdir(dataset_path):
+#         # print('- Dataset directory : {}'.format(ds))
+#         dates = os.listdir(dataset_path)
+
+#         for dt in dates:
+#             if is_quit: break
+
+#             date_path = os.path.join(dataset_path, dt)
+#             # print('- {}'.format(date_path))
+#             if os.path.isdir(date_path):
+#                 # print('- Dir {}'.format(dt))
+#                 cameras = os.listdir(date_path)
+#                 for camera in cameras:
+#                     if is_quit: break
+                    
+#                     camera_path = os.path.join(date_path, camera)
+#                     if os.path.isdir(camera_path):
+#                         # print('Camera path : {}'.format(camera_path))
+#                         clip_files = os.listdir(camera_path)
+#                         for idx, clip_file in enumerate(clip_files):
+#                             if is_quit: break
+
+#                             clip_path = os.path.join(camera_path, clip_file)
+#                             if os.path.isfile(clip_path):
+#                                 print('- Execute clip path : {}'.format(clip_path))
+#                                 clip_date = clip_path.split('_')[-1].split('.')[0]
+
+#                                 run(clip_path, clip_date='{}-'.format(clip_date), tracker_type='csrt', frame_width=512, queue_size=4096)
